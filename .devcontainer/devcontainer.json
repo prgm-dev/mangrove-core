@@ -1,0 +1,56 @@
+{
+    "name": "Foundry Env",
+    "build": {
+        // Sets the run context to one level up instead of the .devcontainer folder.
+        "context": ".",
+        // Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
+        "dockerfile": "Dockerfile"
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/docker-in-docker:1": {},
+        "ghcr.io/devcontainers/features/git:1": {}
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+				"tintinweb.vscode-ethover",
+				"VisualStudioExptTeam.vscodeintellicode",
+				"JuanBlanco.solidity",
+				"tintinweb.solidity-visual-auditor",
+				"tintinweb.vscode-solidity-flattener",
+				"EditorConfig.EditorConfig",
+				"ms-azuretools.vscode-docker",
+				"DavidAnson.vscode-markdownlint",
+				"pomdtr.secrets",
+				"bierner.github-markdown-preview",
+				"tamasfe.even-better-toml"
+			],
+            "settings": {
+                "solidity.packageDefaultDependenciesContractsDirectory": "src",
+                "solidity.packageDefaultDependenciesDirectory": "lib",
+                "solidity.compileUsingRemoteVersion": "v0.8.14",
+                "remote.portsAttributes": {
+                    "8545": {
+                        "label": "Anvil",
+                        "onAutoForward": "silent",
+                        "requireLocalPort": true
+                    }
+                },
+                "secrets.enabledFolders": [
+                    "ethereum"
+                ],
+                "task.allowAutomaticTasks": "on"
+            }
+        }
+    },
+    // Use 'forwardPorts' to make a list of ports inside the container available locally.
+    // "forwardPorts": [],
+    "updateContentCommand": "(git submodule update --init --recursive || true) && (killall anvil || true)",
+    "postCreateCommand": "yarn install"
+    // Uncomment when using a ptrace-based debugger like C++, Go, and Rust
+    // "runArgs": [ "--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined" ],
+    // Uncomment to use the Docker CLI from inside the container. See https://aka.ms/vscode-remote/samples/docker-from-docker.
+    // "mounts": [ "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind" ],
+    // Uncomment to connect as a non-root user if you've added one. See https://aka.ms/vscode-remote/containers/non-root.
+    // "remoteUser": "vscode"
+}
