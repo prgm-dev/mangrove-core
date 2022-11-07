@@ -21,10 +21,8 @@ addresses/**/*.backup.json
 # Personal
 .env
 .env.local
-.vscode/settings.json
 .env.*.local
 *.code-workspace
-.vscode
 
 # Yarn
 .yarn/*

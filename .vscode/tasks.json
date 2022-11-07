@@ -1,0 +1,78 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Dev Blockchain",
+			"detail": "Start a local dev Blockchain using Anvil",
+			"type": "shell",
+			"command": "anvil",
+			"problemMatcher": [],
+			"isBackground": true,
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"group": "anvil"
+			},
+			"runOptions": {
+				"instanceLimit": 1,
+				"runOn": "folderOpen"
+			},
+			"icon": {
+				"id": "combine",
+				"color": "terminal.ansiGreen"
+			}
+		},
+		{
+			"type": "npm",
+			"script": "build",
+			"dependsOn": "node: install",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": [],
+			"label": "node: build",
+			"detail": "Run the `package.json` build script using Corepack",
+			"presentation": {
+				"panel": "dedicated"
+			},
+			"icon": {
+				"id": "tools"
+			}
+		},
+		{
+			"type": "npm",
+			"script": "test",
+			"dependsOn": "node: install",
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+			"problemMatcher": [],
+			"label": "node: test",
+			"detail": "Run the `package.json` test script using Corepack",
+			"presentation": {
+				"panel": "dedicated"
+			},
+			"icon": {
+				"id": "beaker"
+			}
+		},
+		{
+			"type": "npm",
+			"script": "install",
+			"problemMatcher": [],
+			"label": "node: install",
+			"detail": "Install packages from `package.json` using Corepack",
+			"presentation": {
+				"panel": "dedicated"
+			},
+			"runOptions": {
+				"instanceLimit": 1
+			},
+			"icon": {
+				"id": "package"
+			}
+		}
+	]
+}
