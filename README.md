@@ -1,4 +1,4 @@
-[![CI](https://github.com/mangrovedao/mangrove-core/actions/workflows/node.js.yml/badge.svg)](https://github.com/mangrovedao/mangrove-core/actions/workflows/node.js.yml)
+[![CI](https://github.com/mangrovedao/mangrove-core/actions/workflows/node.js.yml/badge.svg)](https://github.com/mangrovedao/mangrove-core/actions/workflows/node.js.yml) [![Open in Dev Containers](https://img.shields.io/static/v1?label=Dev%20Containers&message=Open&color=blue&logo=visualstudiocode)](https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/prgm-dev/mangrove-core.git)
 
 This package contains the Solidity implementation of Mangrove as well as deployment scripts and example Solidity offer logics.
 
