@@ -7,9 +7,11 @@ import {IMakerLogic} from "mgv_src/strategies/interfaces/IMakerLogic.sol";
 import {IMangrove} from "mgv_src/IMangrove.sol";
 import {IERC20, MgvLib} from "mgv_src/MgvLib.sol";
 
+/* Note this is a copy of OfferMakerTutorial.sol with a changed __posthookSuccess__ */
+
 //----------------
 
-contract OfferMaker is Direct {
+contract OfferMakerTutorialResidual is Direct {
   constructor(IMangrove mgv, address deployer)
     // Pass on the reference to the core mangrove contract
     Direct(
@@ -50,6 +52,14 @@ contract OfferMaker is Direct {
         owner: msg.sender // The sender is the owner
       })
     );
+  }
+
+  //-------------
+
+  function __lastLook__(MgvLib.SingleOrder calldata order) internal override returns (bytes32 data) {
+    data = super.__lastLook__(order);
+    require(order.wants == order.offer.gives(), "tutorial/mustBeFullyTaken");
+    return "mgvOffer/proceed";
   }
 
   //----------------
