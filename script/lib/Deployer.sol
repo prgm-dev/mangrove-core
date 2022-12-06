@@ -9,6 +9,8 @@ import {MumbaiFork} from "mgv_test/lib/forks/Mumbai.sol";
 import {LocalFork} from "mgv_test/lib/forks/Local.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
+address constant ANVIL_DEFAULT_FIRST_ACCOUNT = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
+
 /* Writes deployments in 2 ways:
    1. In a json file. Easier to write one directly than to parse&transform
    foundry broadcast log files.
@@ -38,16 +40,21 @@ abstract contract Deployer is Script2 {
     vm.label(address(fork), "Deployer:Fork");
     vm.label(address(remoteEns), "Remote ENS");
 
-    // depending on which fork the script is running on, choose whether to write the addresses to a file, get the right fork contract, and name the current network.
+    // detect if we've already created a fork -- the singleton method works as an inter-contract storage used for communication
     if (singleton("Deployer:Fork") == address(0)) {
+      // depending on which fork the script is running on, choose whether to write the addresses to a file, get the right fork contract, and name the current network.
       if (block.chainid == 80001) {
         fork = new MumbaiFork();
-      } else if (block.chainid == 127) {
+      } else if (block.chainid == 137) {
         fork = new PolygonFork();
       } else if (block.chainid == 31337) {
         fork = new LocalFork();
       } else {
         revert(string.concat("Unknown chain id ", vm.toString(block.chainid), ", cannot deploy."));
+      }
+
+      if (address(remoteEns).code.length == 0 && ANVIL_DEFAULT_FIRST_ACCOUNT.balance >= 1000 ether) {
+        deployRemoteToyENS();
       }
 
       singleton("Deployer:Fork", address(fork));
@@ -74,8 +81,7 @@ abstract contract Deployer is Script2 {
       // In the default case, forge sets the broadcaster to be tx.origin.
       // Using msg.sender would not work since we don't know how deep in the callstack we are.
       _broadcaster = tx.origin;
-      // 0x00a3... is the default tx.origin
-      console.log(_broadcaster);
+      // there are two possible default tx.origin depending on foundry version
       if (
         _broadcaster == 0x00a329c0648769A73afAc7F9381E08FB43dBEA72
           || _broadcaster == 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38
@@ -133,12 +139,35 @@ abstract contract Deployer is Script2 {
     out = string.concat(out, s, "\n");
   }
 
-  // Tries to interpret `envVar`'s value as an address; otherwise look it up in the current fork.
-  function getRawAddressOrName(string memory envVar) internal view returns (address payable) {
+  function envAddressOrName(string memory envVar) internal view returns (address payable) {
     try vm.envAddress(envVar) returns (address addr) {
       return payable(addr);
     } catch {
       return fork.get(vm.envString(envVar));
     }
+  }
+
+  function envHas(string memory envVar) internal view returns (bool) {
+    try vm.envString(envVar) {
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // FFI to `cast rpc setCode` in order to setup a ToyENS at a known address
+  function deployRemoteToyENS() internal {
+    string[] memory inputs = new string[](5);
+    inputs[0] = "cast";
+    inputs[1] = "rpc";
+    inputs[2] = "hardhat_setCode";
+    inputs[3] = vm.toString(address(remoteEns));
+    inputs[4] = vm.toString(address(new ToyENS()).code);
+    bytes memory resp = vm.ffi(inputs);
+    if (keccak256(resp) != keccak256("null")) {
+      console.log(string(resp));
+      revert("Unexpected response from `cast rpc hardhat_setCode`");
+    }
+    console.log("Deployed remote ToyENS");
   }
 }

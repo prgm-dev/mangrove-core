@@ -11,8 +11,6 @@
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 pragma solidity ^0.8.10;
 
-pragma abicoder v2;
-
 import "mgv_src/strategies/offer_maker/abstract/Direct.sol";
 import "mgv_src/strategies/routers/SimpleRouter.sol";
 import {MgvLib, MgvStructs} from "mgv_src/MgvLib.sol";
@@ -146,17 +144,26 @@ contract Amplifier is Direct {
         new_alt_wants = (old_alt_wants * new_alt_gives) / old_alt_gives;
       }
       // the call below might throw
-      updateOffer({
-        outbound_tkn: IERC20(order.outbound_tkn),
-        inbound_tkn: IERC20(alt_stable),
-        gives: new_alt_gives,
-        wants: new_alt_wants,
-        offerId: alt_offerId,
-        gasreq: alt_detail.gasreq(),
-        pivotId: alt_offer.next(),
-        gasprice: 0
-      });
-      return "posthook/bothOfferReposted";
+      uint id = _updateOffer(
+        OfferArgs({
+          outbound_tkn: IERC20(order.outbound_tkn),
+          inbound_tkn: IERC20(alt_stable),
+          gives: new_alt_gives,
+          wants: new_alt_wants,
+          gasreq: alt_detail.gasreq(),
+          pivotId: alt_offer.next(),
+          gasprice: 0,
+          owner: admin(), // ignored
+          fund: 0,
+          noRevert: true
+        }),
+        alt_offerId
+      );
+      if (id == 0) {
+        return "posthook/altOfferRepostFail";
+      } else {
+        return "posthook/bothOfferReposted";
+      }
     } else {
       // repost failed or offer was entirely taken
       retractOffer({

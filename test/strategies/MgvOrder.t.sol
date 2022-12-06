@@ -1,8 +1,6 @@
 // SPDX-License-Identifier:	AGPL-3.0
 pragma solidity ^0.8.10;
 
-pragma abicoder v2;
-
 import {MangroveTest, TestMaker, TestTaker, TestSender, console} from "mgv_test/lib/MangroveTest.sol";
 import {IMangrove} from "mgv_src/IMangrove.sol";
 import {MangroveOrderEnriched as MgvOrder} from "mgv_src/strategies/MangroveOrderEnriched.sol";
@@ -91,6 +89,43 @@ contract MangroveOrder_Test is MangroveTest {
     assertEq(mgv.governance(), mgo.admin(), "Invalid admin address");
   }
 
+  function test_only_owner_can_update_offer() public {
+    IOrderLogic.TakerOrder memory buyOrder = IOrderLogic.TakerOrder({
+      outbound_tkn: base,
+      inbound_tkn: quote,
+      fillOrKill: false,
+      fillWants: true,
+      takerWants: 2 ether,
+      takerGives: 0.26 ether, // with 2% slippage
+      restingOrder: true,
+      pivotId: 0,
+      expiryDate: 0 //NA
+    });
+    IOrderLogic.TakerOrderResult memory res = mgo.take{value: 0.1 ether}(buyOrder);
+    assertTrue(res.offerId > 0, "Resting offer failed to be published on mangrove");
+    vm.expectRevert("Forwarder/unauthorized");
+    vm.prank(freshAddress());
+    mgo.updateOffer(quote, base, 1, 1, 0, res.offerId);
+  }
+
+  function test_owner_can_update_offer() public {
+    IOrderLogic.TakerOrder memory buyOrder = IOrderLogic.TakerOrder({
+      outbound_tkn: base,
+      inbound_tkn: quote,
+      fillOrKill: false,
+      fillWants: true,
+      takerWants: 2 ether,
+      takerGives: 0.26 ether, // with 2% slippage
+      restingOrder: true,
+      pivotId: 0,
+      expiryDate: 0 //NA
+    });
+    IOrderLogic.TakerOrderResult memory res = mgo.take{value: 0.1 ether}(buyOrder);
+    assertTrue(res.offerId > 0, "Resting offer failed to be published on mangrove");
+    mgo.updateOffer(quote, base, 1, 1, 0, res.offerId);
+    assertEq(mgv.offers($(quote), $(base), res.offerId).gives(), 1, "Offer incorrectly updated");
+  }
+
   function test_partial_filled_buy_order_returns_residual() public {
     IOrderLogic.TakerOrder memory buyOrder = IOrderLogic.TakerOrder({
       outbound_tkn: base,
@@ -99,7 +134,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: false,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -124,7 +158,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 3000000000000000001,
       takerGives: 420000000000000001,
-      slippageAmount: 0,
       restingOrder: false,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -142,7 +175,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: false,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -163,7 +195,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerGives: 0.26 ether,
       takerWants: 2 ether,
-      slippageAmount: 0,
       restingOrder: false,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -184,7 +215,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 1 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -204,7 +234,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 1 ether,
       takerGives: 0.13 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -221,8 +250,7 @@ contract MangroveOrder_Test is MangroveTest {
       fillOrKill: false,
       fillWants: true,
       takerWants: 2 ether,
-      takerGives: 0.26 ether, // with 2% slippage
-      slippageAmount: 0.0052 ether, // 2% slippage
+      takerGives: 0.26 ether,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -244,7 +272,7 @@ contract MangroveOrder_Test is MangroveTest {
     assertEq(offer.wants(), buyOrder.takerWants - (res.takerGot + res.fee), "Incorrect wants for bid resting order");
     assertEq(
       offer.gives(),
-      (offer.wants() * (buyOrder.takerGives - buyOrder.slippageAmount)) / buyOrder.takerWants,
+      (offer.wants() * buyOrder.takerGives) / buyOrder.takerWants,
       "Incorrect gives for bid resting order"
     );
 
@@ -262,7 +290,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.102 ether,
-      slippageAmount: 0.002 ether, // 2% slippage
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -277,7 +304,7 @@ contract MangroveOrder_Test is MangroveTest {
     // checking resting order parameters
     MgvStructs.OfferPacked offer = mgv.offers($(quote), $(base), res.offerId);
     assertEq(offer.wants(), buyOrder.takerWants, "Incorrect wants for bid resting order");
-    assertEq(offer.gives(), buyOrder.takerGives - buyOrder.slippageAmount, "Incorrect gives for bid resting order");
+    assertEq(offer.gives(), buyOrder.takerGives, "Incorrect gives for bid resting order");
   }
 
   function test_resting_sell_order_is_successfully_posted() public {
@@ -288,7 +315,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: false, // sell order
       takerWants: 0.2352 ether, // wants 0.24 quotes for 2 bases
       takerGives: 2 ether, // sells 2 base
-      slippageAmount: 0.0048 ether, // with 2% slippage
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -310,7 +336,7 @@ contract MangroveOrder_Test is MangroveTest {
     assertEq(offer.gives(), sellOrder.takerGives - res.takerGave, "Incorrect gives for ask resting order");
     assertEq(
       offer.wants(),
-      (offer.gives() * (sellOrder.takerWants + sellOrder.slippageAmount)) / sellOrder.takerGives,
+      (offer.gives() * sellOrder.takerWants) / sellOrder.takerGives,
       "Incorrect wants for ask resting order"
     );
 
@@ -328,7 +354,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: false, // sell order
       takerWants: 1 ether,
       takerGives: 2 ether, // sells 2 base
-      slippageAmount: 0.02 ether, // with 2% slippage
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -343,7 +368,7 @@ contract MangroveOrder_Test is MangroveTest {
     // checking resting order parameters
     MgvStructs.OfferPacked offer = mgv.offers($(base), $(quote), res.offerId);
     assertEq(offer.gives(), sellOrder.takerGives, "Incorrect gives for ask resting order");
-    assertEq(offer.wants(), sellOrder.takerWants + sellOrder.slippageAmount, "Incorrect wants for ask resting order");
+    assertEq(offer.wants(), sellOrder.takerWants, "Incorrect wants for ask resting order");
   }
 
   function resting_buy_order_for_blacklisted_reserve_reverts() private {
@@ -354,7 +379,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -386,7 +410,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -424,7 +447,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -443,7 +465,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -480,7 +501,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 1.000001 ether, // residual will be below density
       takerGives: 0.13000013 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -500,7 +520,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 1.000001 ether, // residual will be below density
       takerGives: 0.13000013 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -517,8 +536,7 @@ contract MangroveOrder_Test is MangroveTest {
       fillOrKill: false,
       fillWants: true,
       takerWants: 2 ether,
-      takerGives: 0.26 ether, // with 2% slippage
-      slippageAmount: 0,
+      takerGives: 0.26 ether,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0 //NA
@@ -543,7 +561,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: block.timestamp + 60 //NA
@@ -569,7 +586,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: block.timestamp + 60
@@ -596,7 +612,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: block.timestamp + 60
@@ -615,7 +630,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: block.timestamp + 60
@@ -635,25 +649,6 @@ contract MangroveOrder_Test is MangroveTest {
     mgo.take{value: 0.1 ether}(buyOrder);
   }
 
-  function test_additional_gasreq_is_used_for_new_resting_orders() public {
-    mgo.setAdditionalGasreq(10_000);
-    IOrderLogic.TakerOrder memory buyOrder = IOrderLogic.TakerOrder({
-      outbound_tkn: base,
-      inbound_tkn: quote,
-      fillOrKill: false,
-      fillWants: true,
-      takerWants: 2 ether,
-      takerGives: 0.26 ether,
-      slippageAmount: 0,
-      restingOrder: true,
-      pivotId: 0,
-      expiryDate: 0
-    });
-    IOrderLogic.TakerOrderResult memory res = mgo.take{value: 0.1 ether}(buyOrder);
-    MgvStructs.OfferDetailPacked offer_detail = mgv.offerDetails($(quote), $(base), res.offerId);
-    assertEq(offer_detail.gasreq(), mgo.offerGasreq() + 10_000, "wrong offer gasreq");
-  }
-
   function test_underprovisioned_order_logs_properly() public {
     IOrderLogic.TakerOrder memory buyOrder = IOrderLogic.TakerOrder({
       outbound_tkn: base,
@@ -662,7 +657,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 2 ether,
       takerGives: 0.26 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0
@@ -690,7 +684,6 @@ contract MangroveOrder_Test is MangroveTest {
       fillWants: true,
       takerWants: 1 ether,
       takerGives: 0.13 ether,
-      slippageAmount: 0,
       restingOrder: true,
       pivotId: 0,
       expiryDate: 0

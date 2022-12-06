@@ -11,8 +11,6 @@
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 pragma solidity ^0.8.10;
 
-pragma abicoder v2;
-
 import "mgv_src/strategies/offer_forwarder/abstract/Forwarder.sol";
 import "mgv_src/strategies/routers/SimpleRouter.sol";
 import {MgvLib, MgvStructs} from "mgv_src/MgvLib.sol";
@@ -144,30 +142,35 @@ contract AmplifierForwarder is Forwarder {
     if (repost_status == "posthook/reposted") {
       uint new_alt_gives = __residualGives__(order); // in base units
       MgvStructs.OfferPacked alt_offer = MGV.offers(order.outbound_tkn, address(alt_stable), alt_offerId);
-      uint old_alt_wants = alt_offer.wants();
-      // old_alt_gives is also old_gives
-      uint old_alt_gives = order.offer.gives();
-      // we want new_alt_wants == (old_alt_wants:96 * new_alt_gives:96)/old_alt_gives:96
-      // so no overflow to be expected :)
+
       uint new_alt_wants;
       unchecked {
-        new_alt_wants = (old_alt_wants * new_alt_gives) / old_alt_gives;
+        new_alt_wants = (alt_offer.wants() * new_alt_gives) / order.offer.gives();
       }
 
       //uint prov = getMissingProvision(IERC20(order.outbound_tkn), IERC20(alt_stable), type(uint).max, 0, 0);
 
-      // the call below might throw
-      updateOffer({
-        outbound_tkn: IERC20(order.outbound_tkn),
-        inbound_tkn: IERC20(alt_stable),
-        wants: new_alt_wants,
-        gives: new_alt_gives,
-        gasreq: offerGasreq(),
-        gasprice: 0,
-        pivotId: alt_offer.next(),
-        offerId: alt_offerId
-      });
-      return "posthook/bothOfferReposted";
+      uint id = _updateOffer(
+        OfferArgs({
+          outbound_tkn: IERC20(order.outbound_tkn),
+          inbound_tkn: IERC20(alt_stable),
+          wants: new_alt_wants,
+          gives: new_alt_gives,
+          gasreq: type(uint).max, // to use alt_offer's old gasreq
+          gasprice: 0, // ignored
+          pivotId: alt_offer.next(),
+          noRevert: true,
+          fund: 0,
+          owner: owner
+        }),
+        alt_offerId
+      );
+      if (id == 0) {
+        // might want to Log an incident here because this should not be reachable
+        return "posthook/altRepostFail";
+      } else {
+        return "posthook/bothOfferReposted";
+      }
     } else {
       // repost failed or offer was entirely taken
       if (repost_status != "posthook/filled") {

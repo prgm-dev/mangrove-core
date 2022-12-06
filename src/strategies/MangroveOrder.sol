@@ -11,8 +11,6 @@
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 pragma solidity ^0.8.10;
 
-pragma abicoder v2;
-
 import {IMangrove} from "mgv_src/IMangrove.sol";
 import {Forwarder, MangroveOffer} from "mgv_src/strategies/offer_forwarder/abstract/Forwarder.sol";
 import {IOrderLogic} from "mgv_src/strategies/interfaces/IOrderLogic.sol";
@@ -21,10 +19,10 @@ import {TransferLib} from "mgv_src/strategies/utils/TransferLib.sol";
 import {MgvLib, IERC20} from "mgv_src/MgvLib.sol";
 
 ///@title MangroveOrder. A periphery contract to Mangrove protocol that implements "Good till cancelled" (GTC) orders as well as "Fill or kill" (FOK) orders.
-///@notice A GTC order is a market buy (sell) order complemented by a bid (ask) order, called a resting order, that occurs when the buy (sell) order was partially filled.
-/// If the GTC is for some amount $a_goal$ at a price $(1+s)*p$ with slippage $s$, and the corresponding market order was partially filled for $a_now < a_goal$,
-/// the resting order should be posted for an amount $a_later = a_goal - a_now$ at price $p$ (slippage is discarded).
-///@notice A FOK order is simply a buy or sell order that is either completely filled or cancelled. No resting order is posted.
+///@notice A GTC order is a buy (sell) limit order complemented by a bid (ask) limit order, called a resting order, that occurs when the buy (sell) order was partially filled.
+/// If the GTC is for some amount $a_goal$ at a price $p$, and the corresponding limit order was partially filled for $a_now < a_goal$,
+/// the resting order should be posted for an amount $a_later = a_goal - a_now$ at price $p$.
+///@notice A FOK order is simply a buy or sell limit order that is either completely filled or cancelled. No resting order is posted.
 ///@dev requiring no partial fill *and* a resting order is interpreted here as an instruction to revert if the resting order fails to be posted (e.g., if below density).
 
 contract MangroveOrder is Forwarder, IOrderLogic {
@@ -32,10 +30,6 @@ contract MangroveOrder is Forwarder, IOrderLogic {
   ///@notice if the order tx is included after the expriry date, it reverts.
   ///@dev 0 means no expiry.
   mapping(IERC20 => mapping(IERC20 => mapping(uint => uint))) public expiring;
-
-  ///@notice if evm gas cost is updated, one may need to increase gas requirements for new offers to avoid failing.
-  /// Setting `additionalGasreq` is an alternative to redeployment.
-  uint public additionalGasreq;
 
   ///@notice MangroveOrder is a Forwarder logic with a simple router.
   ///@param mgv The mangrove contract on which this logic will run taker and maker orders.
@@ -61,9 +55,31 @@ contract MangroveOrder is Forwarder, IOrderLogic {
     expiring[outbound_tkn][inbound_tkn][offerId] = date;
   }
 
-  ///@inheritdoc IOrderLogic
-  function setAdditionalGasreq(uint additionalGasreq_) external onlyAdmin {
-    additionalGasreq = additionalGasreq_;
+  ///@notice updates an offer on Mangrove
+  ///@dev this can be used to update price of the resting order
+  ///@param outbound_tkn outbound token of the offer list
+  ///@param inbound_tkn inbound token of the offer list
+  ///@param wants new amount of `inbound_tkn` offer owner wants
+  ///@param gives new amount of `outbound_tkn` offer owner gives
+  ///@param pivotId pivot for the new rank of the offer
+  ///@param offerId the id of the offer to be updated
+  function updateOffer(IERC20 outbound_tkn, IERC20 inbound_tkn, uint wants, uint gives, uint pivotId, uint offerId)
+    external
+    payable
+    onlyOwner(outbound_tkn, inbound_tkn, offerId)
+  {
+    OfferArgs memory args;
+
+    // funds to compute new gasprice is msg.value. Will use old gasprice if no funds are given
+    args.fund = msg.value; // if inside a hook (Mangrove is `msg.sender`) this will be 0
+    args.outbound_tkn = outbound_tkn;
+    args.inbound_tkn = inbound_tkn;
+    args.wants = wants;
+    args.gives = gives;
+    args.gasreq = offerGasreq();
+    args.pivotId = pivotId;
+    args.noRevert = false; // will throw if Mangrove reverts
+    _updateOffer(args, offerId);
   }
 
   ///Checks the current timestamps and reneges on trade (by reverting) if the offer has expired.
@@ -115,7 +131,7 @@ contract MangroveOrder is Forwarder, IOrderLogic {
     (res.takerGot, res.takerGave, res.bounty, res.fee) = MGV.marketOrder({
       outbound_tkn: address(tko.outbound_tkn),
       inbound_tkn: address(tko.inbound_tkn),
-      takerWants: tko.takerWants, // we use `tko.takerWants` since it includes user slippage tolerance
+      takerWants: tko.takerWants,
       takerGives: tko.takerGives,
       fillWants: tko.fillWants
     });
@@ -203,12 +219,9 @@ contract MangroveOrder is Forwarder, IOrderLogic {
 
   ///@notice posts a maker order on the (`outbound_tkn`, `inbound_tkn`) offer list.
   ///@param fund amount of WEIs used to cover for the offer bounty (covered gasprice is derived from `fund`).
-  ///@dev entailed price of the (instant) market order includes taker's slippage tolerance. It is given by:
+  ///@dev entailed price that should be preserved for the maker order are:
   /// * `tko.takerGives/tko.takerWants` for buy orders (i.e `fillWants==true`)
   /// * `tko.takerWants/tko.takerGives` for sell orders (i.e `fillWants==false`)
-  /// Price w/o slippage for potential resting order is thus:
-  /// * `(tko.takerGives - tko.slippageAmount)/tko.takerWants` for the resting bid
-  /// * `(tko.takerWants + tko.slippageAmount)/tko.takerGives` for the resting ask.
   function postRestingOrder(
     TakerOrder calldata tko,
     IERC20 outbound_tkn,
@@ -219,19 +232,15 @@ contract MangroveOrder is Forwarder, IOrderLogic {
     uint residualWants;
     uint residualGives;
     if (tko.fillWants) {
-      // if `slippageAmount` is ill defined the call below can underflow
-      uint makerGives = tko.takerGives - tko.slippageAmount;
-      // partialFill => tko.takerWants < res.takerGot + res.fee
+      // partialFill => tko.takerWants > res.takerGot + res.fee
       residualWants = tko.takerWants - (res.takerGot + res.fee);
-      // adapting residualGives to match initial price (before slippage)
-      residualGives = (residualWants * makerGives) / tko.takerWants;
+      // adapting residualGives to match initial price
+      residualGives = (residualWants * tko.takerGives) / tko.takerWants;
     } else {
-      // if `slippageAmount` is ill defined the call below could overflow or have `makerWants` not castable to uint96.
-      uint makerWants = tko.takerWants + tko.slippageAmount;
       // partialFill => tko.takerGives > res.takerGave
       residualGives = tko.takerGives - res.takerGave;
-      // adapting residualGives to match initial price (before slippage)
-      residualWants = (residualGives * makerWants) / tko.takerGives;
+      // adapting residualGives to match initial price
+      residualWants = (residualGives * tko.takerWants) / tko.takerGives;
     }
     res.offerId = _newOffer(
       OfferArgs({
@@ -239,7 +248,7 @@ contract MangroveOrder is Forwarder, IOrderLogic {
         inbound_tkn: inbound_tkn,
         wants: residualWants,
         gives: residualGives,
-        gasreq: offerGasreq() + additionalGasreq, // using default gasreq of the strat + potential admin defined increase
+        gasreq: offerGasreq(), // using default gasreq of the strat
         gasprice: 0, // ignored
         pivotId: tko.pivotId,
         fund: fund,
